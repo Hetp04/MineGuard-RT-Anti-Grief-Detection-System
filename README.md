@@ -133,8 +133,6 @@ MineGuard.redis.get("hello")      # => "world"
 
 ---
 
-## API
-
 ### `POST /api/block_events`
 
 ```json
@@ -149,37 +147,4 @@ MineGuard.redis.get("hello")      # => "world"
   "timestamp": "2026-04-27T15:22:00Z"
 }
 ```
-
-Response includes the assigned `risk_score`, `status`, explanation reasons, and (if applicable) the alert id.
-
-### `GET /dashboard`
-
-Live admin view: 4 stat cards, suspicious-players table, live activity feed, open-alerts table, toast notifications.
-
-### `GET /alerts`, `GET /alerts/:id`
-
-Historical alerts and per-alert detail page (reasons + supporting events). `PATCH /alerts/:id` lets you mark an alert as `reviewing`, `resolved`, or `false_positive`.
-
-### `GET /players/:id`
-
-Per-player profile, recent events, recent alerts.
-
----
-
-## Testing
-
-```bash
-bundle exec rspec
-```
-
-Specs cover:
-
-* Block weight scoring
-* Redis sliding window cleanup + windowed counts (via `mock_redis`)
-* Spatial clustering heuristic
-* Risk score combination + thresholds
-* Alert creation, cooldown, and severity escalation
-* End-to-end ingestion (player upsert + event persistence + alert path)
-
----
 
