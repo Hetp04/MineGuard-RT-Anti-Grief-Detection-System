@@ -4,8 +4,6 @@ MineGuard is a real-time anti-grief detection and monitoring platform for Minecr
 
 It ingests player block events, runs them through a multi-signal heuristic pipeline (activity rate, block-value weighting, dangerous actions, spatial-temporal clustering), assigns a 0–100 suspicion score, generates explainable alerts, and pushes everything live to an admin dashboard.
 
-> Resume blurb: *Built a real-time anti-grief detection system using simulated Minecraft player event ingestion, Redis sorted sets, ActionCable, and PostgreSQL.*
-
 ---
 
 ## Why this matters
@@ -49,57 +47,7 @@ EventIngestionService
    ├── AlertGenerationService.maybe_create ← cooldown-aware
    └── DashboardBroadcastService           ← ActionCable
                        │
-                       ▼
-                /dashboard (live)
-```
-
-Service classes live in `app/services/` so detection logic stays out of controllers.
-
----
-
-## Detection logic
-
-| Signal              | Source                                  | Max contribution |
-|---------------------|------------------------------------------|------------------|
-| Activity rate       | Redis sorted set, windowed counts        | 35               |
-| Block value         | `BlockWeightService` weighted blocks     | 30               |
-| Dangerous actions   | TNT / lava / fire placements             | 25               |
-| Spatial clustering  | Bounding-box radius of recent coords     | 25               |
-
-Final score is clamped to `0..100`. Status thresholds: `normal < 30 ≤ watching < 60 ≤ suspicious < 80 ≤ critical`.
-
-Alerts include a list of human-readable reasons, e.g.:
-
-```
-• Player performed 52 actions in the last 60 seconds
-• High-value blocks affected: diamond_block ×12, chest ×6
-• Actions clustered within a 9.4-block radius
-• Risk score 87 exceeded suspicious threshold
-```
-
-A 2-minute cooldown prevents alert spam unless severity escalates.
-
----
-
-## Redis sliding window design
-
-Per-player key: `player:{uuid}:events`
-Type: **ZSET** (sorted set)
-Score: Unix-millisecond timestamp
-Member: `"<ts>:<nonce>:<json_payload>"`
-
-Pipeline on each event:
-
-1. `ZADD` event with timestamp score.
-2. `ZREMRANGEBYSCORE` purge anything older than 10 minutes.
-3. `ZCOUNT` to compute counts inside 10s / 60s / 5m windows.
-4. `ZRANGEBYSCORE` to fetch events for the spatial analyzer.
-5. `EXPIRE` to ensure stale players don't accumulate keys.
-
-If Redis is unavailable, ingestion still succeeds against PostgreSQL and degrades gracefully (the pipeline falls back to a DB query for recent events).
-
----
-
+                       
 ## Running locally on macOS
 
 ### 1. System dependencies (Homebrew)
@@ -235,43 +183,3 @@ Specs cover:
 
 ---
 
-## Demo flow (good for an interview)
-
-1. `bin/rails s` and open `/dashboard`.
-2. `bin/rails mineguard:simulate_events SCENARIO=normal_mining COUNT=60` — green/yellow only.
-3. `bin/rails mineguard:demo_grief` — watch a player spike to red, an alert toast appears, the players table flashes, the open-alerts table grows.
-4. Click the alert → see the explanation list and supporting events.
-
-Closing line: *“Each event is processed in < 5ms — Redis sorted sets handle the windowed counts, PostgreSQL is durable storage, and ActionCable pushes updates to the dashboard live.”*
-
----
-
-## Future improvements
-
-- Real Minecraft plugin (Spigot/Paper) that POSTs to `/api/block_events`
-- Admin rollback tools (CoreProtect-style) when an alert is confirmed
-- Discord webhook notifications for `critical` alerts
-- Per-server configurable thresholds and weights
-- Player trust scores (long-term reputation)
-- ML-based anomaly detection layered on top of the heuristic baseline
-
----
-
-## Project layout
-
-```
-app/
-  controllers/   api/block_events_controller, dashboard, alerts, players
-  models/        player, block_event, alert
-  services/      event_ingestion, redis_activity_window, block_weight,
-                 spatial_pattern, risk_scoring, alert_generation,
-                 dashboard_broadcast
-  channels/      dashboard_channel
-  views/         dashboard, alerts, players, layouts
-  assets/        application.css (dark theme), application.js (cable consumer)
-config/          database.yml, cable.yml, routes.rb, initializers/redis.rb
-db/migrate/      players, block_events, alerts
-lib/mineguard/   simulator
-lib/tasks/       mineguard.rake
-spec/services/   one spec per service
-```
