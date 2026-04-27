@@ -1,0 +1,103 @@
+<% content_for :title, @player.name %>
+
+<section class="profile-head">
+  <div class="avatar"><%= avatar_for(@player.name) %></div>
+  <div class="profile-meta">
+    <div class="name"><%= @player.name %> <%= status_pill(@player.status) %></div>
+    <div class="uuid"><%= @player.uuid %></div>
+  </div>
+  <div style="margin-left:auto; display:flex; gap:8px;">
+    <%= link_to "← Back to players", players_path, class: "btn ghost" %>
+  </div>
+</section>
+
+<section class="cards">
+  <div class="card">
+    <div class="card-label">Risk score</div>
+    <div class="card-value score <%= @player.status %>"><%= @player.current_risk_score %></div>
+    <div class="card-sub">0–100 · live</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Last action</div>
+    <div class="card-value" style="font-size:18px;"><%= @player.last_action&.tr("_"," ") || "—" %></div>
+    <div class="card-sub mono"><%= @player.last_block %></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Last seen</div>
+    <div class="card-value" style="font-size:18px;"><%= fmt_time(@player.last_seen_at) || "—" %></div>
+    <div class="card-sub"><%= time_ago_in_words(@player.last_seen_at) + " ago" if @player.last_seen_at %></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Recent alerts</div>
+    <div class="card-value"><%= @alerts.size %></div>
+    <div class="card-sub"><%= @player.alerts.where(status: "open").count %> open</div>
+  </div>
+</section>
+
+<section class="grid-2">
+  <div class="panel">
+    <div class="panel-head"><h2>Activity · last 15m</h2></div>
+    <div style="height: 200px;"><canvas id="chart-player-timeline"></canvas></div>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Recent alerts</h2></div>
+    <% if @alerts.any? %>
+      <table class="data">
+        <thead><tr><th>Time</th><th>Sev</th><th>Score</th><th>Reason</th></tr></thead>
+        <tbody>
+          <% @alerts.each do |a| %>
+            <tr>
+              <td class="mono muted tiny"><%= fmt_time(a.created_at) %></td>
+              <td><%= severity_pill(a.severity) %></td>
+              <td class="num score <%= score_status(a.risk_score) %>"><%= a.risk_score %></td>
+              <td><%= link_to a.reason_summary, alert_path(a), class: "muted" %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    <% else %>
+      <div class="empty">No alerts for this player.</div>
+    <% end %>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Recent block events</h2><span class="muted tiny"><%= @events.size %> events</span></div>
+  <table class="data">
+    <thead><tr><th>Time</th><th>Action</th><th>Block</th><th>Coords</th><th>Risk pts</th></tr></thead>
+    <tbody>
+      <% @events.each do |e| %>
+        <tr>
+          <td class="mono muted tiny"><%= fmt_time(e.occurred_at) %></td>
+          <td><%= e.action_type.tr("_"," ") %></td>
+          <td class="mono"><%= e.block_type %></td>
+          <td class="mono muted">(<%= e.x %>, <%= e.y %>, <%= e.z %>)</td>
+          <td class="num"><%= e.risk_points %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+</section>
+
+<script>
+  (function () {
+    if (typeof Chart === "undefined") return;
+    var data = <%= raw @timeline.to_json %>;
+    var labels = [];
+    var values = [];
+    var now = new Date();
+    for (var i = 14; i >= 0; i--) {
+      var d = new Date(now.getTime() - i * 60000);
+      var key = String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0");
+      labels.push(key);
+      values.push(data[key] || 0);
+    }
+    new Chart(document.getElementById("chart-player-timeline").getContext("2d"), {
+      type: "bar",
+      data: { labels: labels, datasets: [{ data: values, backgroundColor: "rgba(236,236,236,0.15)", borderColor: "#ececec", borderWidth: 1, borderRadius: 4 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                 scales: { x: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#6b6b6b" } },
+                           y: { beginAtZero: true, grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#6b6b6b", precision: 0 } } } }
+    });
+  })();
+</script>

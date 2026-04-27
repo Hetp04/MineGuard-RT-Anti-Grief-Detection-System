@@ -1,0 +1,43 @@
+<% content_for :title, "Players" %>
+
+<%= form_with url: players_path, method: :get, local: true, class: "filters" do |f| %>
+  <span class="label">Filter</span>
+  <%= f.text_field :q, value: @q, placeholder: "Name or UUID…", class: "input", style: "width:240px" %>
+  <%= f.select :status, [["All statuses", ""]] + Player::STATUSES.map { |s| [s, s] }, { selected: @status }, class: "input" %>
+  <%= f.submit "Apply", class: "btn primary" %>
+  <%= link_to "Reset", players_path, class: "btn ghost" if @q.present? || @status.present? %>
+  <span style="margin-left:auto" class="muted tiny"><%= @players.size %> player<%= "s" if @players.size != 1 %></span>
+<% end %>
+
+<section class="panel">
+  <% if @players.any? %>
+    <table class="data">
+      <thead><tr><th>Player</th><th>Risk</th><th>Status</th><th>Last action</th><th>Last seen</th><th></th></tr></thead>
+      <tbody>
+        <% @players.each do |p| %>
+          <tr>
+            <td>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <div class="avatar" style="width:32px;height:32px;font-size:13px;border-radius:8px;"><%= avatar_for(p.name) %></div>
+                <div>
+                  <div class="strong"><%= p.name %></div>
+                  <div class="muted tiny mono"><%= p.uuid %></div>
+                </div>
+              </div>
+            </td>
+            <td class="num score <%= p.status %>"><%= p.current_risk_score %></td>
+            <td><%= status_pill(p.status) %></td>
+            <td>
+              <span class="muted"><%= p.last_action&.tr("_"," ") %></span>
+              <span class="mono tiny dim"><%= p.last_block %></span>
+            </td>
+            <td class="mono muted tiny"><%= fmt_time(p.last_seen_at) %></td>
+            <td><%= link_to "View →", player_path(p), class: "btn ghost" %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% else %>
+    <div class="empty">No players match those filters.</div>
+  <% end %>
+</section>

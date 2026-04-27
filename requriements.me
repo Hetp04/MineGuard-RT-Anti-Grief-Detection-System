@@ -1,0 +1,754 @@
+# Cursor Prompt: MineGuard — Real-Time Anti-Grief Detection System
+
+You are helping me build a portfolio-grade software engineering project called **MineGuard: Real-Time Anti-Grief Detection System**.
+
+This project should be implemented using:
+
+* **Ruby on Rails** for the backend web application
+* **PostgreSQL** for persistent data storage
+* **Redis** for real-time sliding-window detection and temporary player activity tracking
+* **ActionCable** for real-time admin dashboard updates
+* **Minecraft API / plugin simulation layer** for receiving player block actions
+
+The goal is to build a realistic system that detects possible griefing behavior on a Minecraft server in real time by analyzing player activity patterns. This should look and feel like a real engineering project, not a toy CRUD app.
+
+---
+
+## 1. Project Overview
+
+MineGuard is a real-time anti-grief detection and monitoring platform for Minecraft servers.
+
+In Minecraft, griefing refers to malicious player behavior such as destroying valuable blocks, rapidly modifying builds, placing disruptive blocks, or damaging another player’s structures. Server admins often need tools that can detect suspicious activity quickly without falsely punishing normal players.
+
+MineGuard should ingest player block activity events, analyze them using multiple signals, assign a risk score, and notify admins when behavior appears suspicious.
+
+The system should support:
+
+* Real-time player activity tracking
+* Sliding-window rate analysis
+* Block value weighting
+* Spatial-temporal pattern detection
+* Suspicion score calculation
+* Alert generation
+* Admin dashboard updates through WebSockets
+* Historical event storage for review
+
+---
+
+## 2. Core Idea
+
+The system should not flag a player only because they broke many blocks. Instead, it should combine multiple signals to reduce false positives.
+
+For example:
+
+A player mining many dirt blocks quickly may be normal.
+
+A player breaking many diamond blocks, chests, beacons, or player-built structures in a short period, across a concentrated area, may be suspicious.
+
+A player repeatedly placing lava, TNT, or fire near other players’ builds may also be suspicious.
+
+MineGuard should analyze behavior using a multi-signal approach:
+
+1. **Activity Rate**
+   How many actions did the player perform in a short time window?
+
+2. **Block Value Weighting**
+   Are the affected blocks valuable, rare, dangerous, or commonly associated with griefing?
+
+3. **Spatial-Temporal Patterns**
+   Are actions clustered in a specific location over a short period, suggesting targeted destruction?
+
+4. **Action Type**
+   Is the player breaking blocks, placing dangerous blocks, or interacting with containers?
+
+5. **Risk Scoring**
+   Combine these signals into a suspicion score from 0 to 100.
+
+---
+
+## 3. Primary User
+
+The primary user is a Minecraft server administrator.
+
+The admin should be able to:
+
+* View live player activity
+* See currently suspicious players
+* Receive real-time alerts
+* Review recent flagged events
+* Inspect why a player was flagged
+* See block counts, risk score, affected area, and timeline
+
+---
+
+## 4. Functional Requirements
+
+### 4.1 Player Event Ingestion
+
+Create an endpoint that accepts Minecraft player activity events.
+
+Example event payload:
+
+```json
+{
+  "player_uuid": "abc-123",
+  "player_name": "Steve",
+  "server_id": "main-survival",
+  "action_type": "block_break",
+  "block_type": "diamond_block",
+  "x": 120,
+  "y": 64,
+  "z": -340,
+  "world": "overworld",
+  "timestamp": "2026-04-27T15:22:00Z"
+}
+```
+
+Supported action types should include:
+
+* `block_break`
+* `block_place`
+* `container_open`
+* `container_remove_item`
+* `fire_place`
+* `lava_place`
+* `tnt_place`
+
+The API should validate required fields and store accepted events in PostgreSQL.
+
+---
+
+### 4.2 Player Model
+
+Create a `Player` model with fields such as:
+
+* `uuid`
+* `name`
+* `first_seen_at`
+* `last_seen_at`
+* `current_risk_score`
+* `status`
+
+Possible statuses:
+
+* `normal`
+* `watching`
+* `suspicious`
+* `critical`
+
+---
+
+### 4.3 Block Event Model
+
+Create a `BlockEvent` model to store player actions.
+
+Fields:
+
+* `player_id`
+* `server_id`
+* `action_type`
+* `block_type`
+* `x`
+* `y`
+* `z`
+* `world`
+* `risk_points`
+* `created_at`
+
+This table will be used for historical review, dashboard display, and alert investigation.
+
+---
+
+### 4.4 Redis Sliding Window Detection
+
+Use Redis sorted sets to track recent player actions in real time.
+
+For each player, store events in Redis using a key like:
+
+```text
+player:{player_uuid}:events
+```
+
+Each event should be added to a sorted set where:
+
+* The score is the Unix timestamp in milliseconds
+* The value is a serialized event summary
+
+For each new event:
+
+1. Add event to Redis sorted set
+2. Remove old events outside the detection window
+3. Count recent actions in the window
+4. Calculate action rate
+5. Use this as part of the suspicion score
+
+Suggested detection windows:
+
+* 10 seconds for burst activity
+* 60 seconds for short-term suspicious behavior
+* 5 minutes for sustained suspicious behavior
+
+Example rule:
+
+If a player breaks more than 40 blocks in 60 seconds, increase risk score.
+
+---
+
+### 4.5 Block Value Weighting
+
+Create a service that assigns weights to block types.
+
+Example weights:
+
+```ruby
+BLOCK_WEIGHTS = {
+  "dirt" => 1,
+  "stone" => 1,
+  "oak_log" => 2,
+  "glass" => 3,
+  "chest" => 8,
+  "diamond_block" => 10,
+  "emerald_block" => 10,
+  "beacon" => 12,
+  "tnt" => 15,
+  "lava" => 15,
+  "fire" => 12
+}
+```
+
+The system should treat high-value or dangerous blocks as more suspicious.
+
+For example:
+
+* Breaking 50 dirt blocks should not be very suspicious.
+* Breaking 10 diamond blocks or chests quickly should be more suspicious.
+* Placing lava, fire, or TNT should significantly increase risk.
+
+---
+
+### 4.6 Spatial-Temporal Pattern Detection
+
+Detect whether player actions are concentrated in a small area over a short period.
+
+For each player, analyze recent events and calculate whether they are clustered.
+
+A simple approach:
+
+* Look at all actions in the last 60 seconds
+* Calculate the bounding box of affected coordinates
+* Determine how many blocks were modified inside that area
+* If many blocks are changed in a small radius, increase suspicion
+
+Example:
+
+If a player breaks 30 valuable blocks within a 15-block radius in under 60 seconds, create a high-risk alert.
+
+This does not need to use advanced machine learning. A clear heuristic-based system is enough.
+
+---
+
+### 4.7 Suspicion Score Calculation
+
+Create a `RiskScoringService` that calculates a score from 0 to 100.
+
+The score should combine:
+
+* Action rate score
+* Block value score
+* Dangerous action score
+* Spatial clustering score
+* Recent alert history
+
+Example scoring formula:
+
+```text
+risk_score = activity_rate_score + block_value_score + spatial_score + dangerous_action_score
+```
+
+Clamp the score between 0 and 100.
+
+Suggested thresholds:
+
+* `0–29`: normal
+* `30–59`: watching
+* `60–79`: suspicious
+* `80–100`: critical
+
+The score should be explainable. When an alert is created, store the reasons.
+
+Example explanation:
+
+```json
+{
+  "reasons": [
+    "Player broke 52 blocks in 60 seconds",
+    "High-value blocks affected: diamond_block, chest",
+    "Actions clustered within 12-block radius",
+    "Risk score exceeded suspicious threshold"
+  ]
+}
+```
+
+---
+
+### 4.8 Alert System
+
+Create an `Alert` model.
+
+Fields:
+
+* `player_id`
+* `risk_score`
+* `severity`
+* `status`
+* `reason_summary`
+* `metadata`
+* `created_at`
+
+Severity levels:
+
+* `low`
+* `medium`
+* `high`
+* `critical`
+
+Alert statuses:
+
+* `open`
+* `reviewing`
+* `resolved`
+* `false_positive`
+
+When a player crosses a suspicious threshold, create an alert.
+
+Avoid duplicate spam by adding alert cooldowns.
+
+Example:
+
+Do not create more than one alert for the same player within 2 minutes unless the severity increases.
+
+---
+
+### 4.9 Real-Time Dashboard
+
+Build an admin dashboard in Rails.
+
+The dashboard should show:
+
+* Live event stream
+* Active alerts
+* Player risk scores
+* Most suspicious players
+* Recent block events
+* Alert details
+
+Use ActionCable to push updates when:
+
+* A new block event is received
+* A player’s risk score changes
+* A new alert is created
+
+The dashboard does not need to be visually perfect, but it should look clean and professional.
+
+Use simple cards/tables for:
+
+* Player name
+* Risk score
+* Status
+* Last action
+* Alert severity
+* Reason summary
+
+---
+
+## 5. Non-Functional Requirements
+
+### 5.1 Performance
+
+The system should be designed for real-time processing.
+
+Each incoming event should be processed quickly.
+
+Redis should be used for fast short-term activity tracking instead of querying PostgreSQL for every event.
+
+PostgreSQL should be used for durable historical storage.
+
+---
+
+### 5.2 Reliability
+
+If Redis is temporarily unavailable, the system should still store the event in PostgreSQL and log the detection failure.
+
+The app should not crash because one detection component fails.
+
+---
+
+### 5.3 Explainability
+
+Every alert must explain why the player was flagged.
+
+This is important because false positives are possible.
+
+Admins should be able to understand the reason behind every alert.
+
+---
+
+### 5.4 Maintainability
+
+Detection logic should be separated into service classes.
+
+Suggested services:
+
+* `EventIngestionService`
+* `RedisActivityWindowService`
+* `BlockWeightService`
+* `SpatialPatternService`
+* `RiskScoringService`
+* `AlertGenerationService`
+* `DashboardBroadcastService`
+
+Do not put all detection logic directly inside the controller.
+
+---
+
+## 6. Suggested Rails Structure
+
+Use this approximate structure:
+
+```text
+app/
+  controllers/
+    api/block_events_controller.rb
+    dashboard_controller.rb
+  models/
+    player.rb
+    block_event.rb
+    alert.rb
+  services/
+    event_ingestion_service.rb
+    redis_activity_window_service.rb
+    block_weight_service.rb
+    spatial_pattern_service.rb
+    risk_scoring_service.rb
+    alert_generation_service.rb
+    dashboard_broadcast_service.rb
+  channels/
+    dashboard_channel.rb
+  views/
+    dashboard/
+      index.html.erb
+```
+
+---
+
+## 7. API Endpoints
+
+Create these endpoints:
+
+### Submit Block Event
+
+```http
+POST /api/block_events
+```
+
+Accepts a player activity event and runs detection.
+
+### Dashboard
+
+```http
+GET /dashboard
+```
+
+Displays real-time admin dashboard.
+
+### Alerts Index
+
+```http
+GET /alerts
+```
+
+Shows historical alerts.
+
+### Alert Details
+
+```http
+GET /alerts/:id
+```
+
+Shows one alert and the supporting block events.
+
+---
+
+## 8. Example Detection Scenario
+
+A player named `Griefer123` breaks the following within 60 seconds:
+
+* 12 diamond blocks
+* 6 chests
+* 3 beacon blocks
+* 40 glass blocks
+
+All actions occur within a 10-block radius.
+
+MineGuard should:
+
+1. Store every event in PostgreSQL
+2. Track the events in Redis
+3. Detect a high activity rate
+4. Detect high-value blocks
+5. Detect spatial clustering
+6. Calculate a high risk score
+7. Mark the player as `critical`
+8. Create an alert
+9. Broadcast the alert to the dashboard through ActionCable
+
+Example alert summary:
+
+```text
+Critical alert: Griefer123 modified 61 blocks in 60 seconds, including high-value blocks, within a concentrated area.
+```
+
+---
+
+## 9. Testing Requirements
+
+Add tests for:
+
+* Event ingestion validation
+* Player creation/updating
+* Redis sliding window cleanup
+* Block weight scoring
+* Spatial clustering detection
+* Risk score calculation
+* Alert creation thresholds
+* Duplicate alert cooldown behavior
+
+Use Rails tests or RSpec, whichever fits the project setup best.
+
+---
+
+## 10. Seed / Simulation Data
+
+Create a script or rake task that simulates player events.
+
+The simulation should include:
+
+1. Normal mining behavior
+2. Normal building behavior
+3. Suspicious rapid block breaking
+4. High-value block destruction
+5. TNT/lava/fire placement
+6. Clustered griefing behavior
+
+This will make the dashboard easier to demo.
+
+Suggested command:
+
+```bash
+rails mineguard:simulate_events
+```
+
+---
+
+## 11. README Requirements
+
+Create a professional README explaining:
+
+* What MineGuard is
+* Why grief detection matters
+* Tech stack
+* Architecture overview
+* Detection logic
+* Redis sliding window design
+* Risk scoring model
+* How to run locally
+* How to simulate events
+* Screenshots or dashboard description
+* Future improvements
+
+Future improvement ideas:
+
+* Minecraft plugin integration
+* Admin rollback tools
+* Discord moderation alerts
+* ML-based anomaly detection
+* Per-server configurable thresholds
+* Player trust scores
+
+---
+
+## 12. Implementation Style
+
+Please build this incrementally.
+
+Start with:
+
+1. Rails models and migrations
+2. API event ingestion endpoint
+3. Redis sliding window service
+4. Risk scoring service
+5. Alert generation
+6. Dashboard
+7. ActionCable updates
+8. Simulation script
+9. Tests
+10. README
+
+Code should be clean, commented where useful, and organized into service classes.
+
+Prioritize clarity and correctness over unnecessary complexity.
+
+The final project should be good enough to describe on a resume as:
+
+> Developed a real-time anti-grief detection system in Ruby on Rails using Redis sorted sets, ActionCable, PostgreSQL, and Minecraft-style event ingestion to detect anomalous player behavior through activity rate, block-value weighting, and spatial-temporal pattern analysis.
+
+
+No, you do not need your own real Minecraft server for the project.
+For a portfolio version, you can build it with a simulated Minecraft event API:
+Fake player action → Rails API → Redis detection → PostgreSQL storage → dashboard alert
+That is enough to honestly describe it as “Minecraft-style event ingestion” or “Minecraft API simulation layer.”
+Best approach:
+
+
+Build without a server first
+
+
+Create fake block events with a Rails task or script.
+
+
+Example: Steve breaks 50 blocks in 60 seconds.
+
+
+Your dashboard shows alerts in real time.
+
+
+
+
+Optional later
+
+
+Add a real Minecraft plugin or server integration if you want.
+
+
+Not required for resume value.
+
+
+
+
+On your resume, phrase it safely as:
+
+Built a real-time anti-grief detection system using simulated Minecraft player event ingestion, Redis sorted sets, ActionCable, and PostgreSQL.
+
+This avoids claiming you integrated with a real live server.
+
+What’s on screen:
+
+Top section (Quick overview cards):
+
+Total active players
+Players being watched
+Active alerts (🔥 highlighted)
+Highest risk score right now
+
+Middle section (Most important):
+👉 Suspicious Players Table
+
+Player name
+Risk score (color-coded)
+Status (normal / watching / critical)
+Last action
+“View Details” button
+
+Example:
+
+Griefer123 | 87 🔴 | CRITICAL | Broke diamond_block | [View]
+
+Right or bottom:
+👉 Live Activity Feed (scrolling)
+
+“Steve broke dirt”
+“Alex placed TNT”
+“Griefer123 broke chest ⚠️”
+
+This updates in real time via ActionCable.
+
+🚨 2. Alert Popup / Highlight
+
+When something bad happens:
+
+A new alert appears instantly
+Row turns red
+Optional toast notification:
+⚠️ Critical Alert:
+Griefer123 modified 61 blocks in 60 seconds
+🔍 3. Player Detail Page (Click “View”)
+6
+Shows:
+
+Top:
+
+Player name
+Risk score (big + colored)
+Status badge
+
+Middle:
+
+Breakdown of WHY flagged:
+High activity rate
+High-value blocks
+Clustered actions
+
+Example:
+
+Reasons:
+• 52 blocks in 60 seconds
+• High-value blocks: diamond_block, chest
+• Actions within 12-block radius
+
+Bottom:
+
+Timeline of events (table)
+Optional: simple “cluster radius” visualization (even just text is fine)
+⚙️ 4. Minimal but Clean Design
+
+Keep it:
+
+Dark theme (looks more “engineering”)
+Tables + cards (don’t overdesign)
+Color-coded risk:
+🟢 green = normal
+🟡 yellow = watching
+🟠 orange = suspicious
+🔴 red = critical
+🔄 5. Real-Time Feel (VERY IMPORTANT)
+
+This is what makes your project stand out:
+
+Without refresh:
+
+New events appear
+Risk scores update
+Alerts pop in
+
+That’s your ActionCable flex 💪
+
+🧪 6. Demo Flow (what YOU will show in interviews)
+Run simulation script
+Open dashboard
+Show normal activity
+Suddenly:
+Player spikes activity
+Risk score jumps
+Alert appears live
+
+Then say:
+
+“The system uses Redis sliding windows + weighted scoring to detect anomalies in real time.”
+
+🔥 That line alone carries.
+
+💡 Key takeaway
+
+Your UX is not about beauty — it’s about:
+
+Clarity + Real-time insight + Explainability

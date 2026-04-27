@@ -1,0 +1,34 @@
+<% content_for :title, "Alerts" %>
+
+<%= form_with url: alerts_path, method: :get, local: true, class: "filters" do |f| %>
+  <span class="label">Severity</span>
+  <%= f.select :severity, [["any",""]] + Alert::SEVERITIES.map { |s| [s, s] }, { selected: @severity }, class: "input" %>
+  <span class="label">Status</span>
+  <%= f.select :status, [["any",""]] + Alert::STATUSES.map { |s| [s.tr("_"," "), s] }, { selected: @status }, class: "input" %>
+  <%= f.submit "Apply", class: "btn primary" %>
+  <%= link_to "Reset", alerts_path, class: "btn ghost" if @severity.present? || @status.present? %>
+  <span style="margin-left:auto" class="muted tiny"><%= @alerts.size %> alert<%= "s" if @alerts.size != 1 %></span>
+<% end %>
+
+<section class="panel">
+  <% if @alerts.any? %>
+    <table class="data">
+      <thead><tr><th>Time</th><th>Severity</th><th>Status</th><th>Player</th><th>Score</th><th>Summary</th><th></th></tr></thead>
+      <tbody>
+        <% @alerts.each do |a| %>
+          <tr>
+            <td class="mono muted tiny"><%= a.created_at.strftime("%Y-%m-%d %H:%M:%S") %></td>
+            <td><%= severity_pill(a.severity) %></td>
+            <td><%= status_pill(a.status) %></td>
+            <td class="strong"><%= a.player.name %></td>
+            <td class="num score <%= score_status(a.risk_score) %>"><%= a.risk_score %></td>
+            <td class="muted"><%= a.reason_summary %></td>
+            <td><%= link_to "Open →", alert_path(a), class: "btn ghost" %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% else %>
+    <div class="empty">No alerts match those filters.</div>
+  <% end %>
+</section>

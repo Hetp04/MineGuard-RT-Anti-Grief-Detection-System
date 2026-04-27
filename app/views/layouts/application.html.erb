@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>MineGuard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <%= csrf_meta_tags %>
+  <%= csp_meta_tag %>
+  <%= action_cable_meta_tag %>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <%= stylesheet_link_tag "application", media: "all" %>
+  <%= javascript_include_tag "application", defer: true %>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">M</div>
+        <div class="brand-text">
+          <div class="brand-name">MineGuard</div>
+          <div class="brand-sub">anti-grief sentinel</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <% nav = [
+             ["Dashboard", dashboard_path, "grid"],
+             ["Players", players_path, "users"],
+             ["Alerts", alerts_path, "bell"]
+           ] %>
+        <% nav.each do |label, path, icon| %>
+          <%= link_to path, class: "nav-link #{'active' if request.path == path || (path != '/' && request.path.start_with?(path))}" do %>
+            <span class="nav-icon" data-icon="<%= icon %>"></span>
+            <span><%= label %></span>
+          <% end %>
+        <% end %>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="conn" id="conn-indicator">
+          <span class="conn-dot"></span>
+          <span class="conn-label">connecting…</span>
+        </div>
+        <div class="version">v0.1 · dev</div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <div class="topbar-title"><%= content_for?(:title) ? yield(:title) : "Overview" %></div>
+        <div class="topbar-actions">
+          <%= form_with url: players_path, method: :get, local: true, class: "search" do |f| %>
+            <span class="search-icon">⌕</span>
+            <%= f.text_field :q, placeholder: "Search players…", value: params[:q], autocomplete: "off" %>
+          <% end %>
+        </div>
+      </header>
+
+      <% flash.each do |type, msg| %>
+        <div class="flash flash-<%= type %>"><%= msg %></div>
+      <% end %>
+
+      <main class="content">
+        <%= yield %>
+      </main>
+    </div>
+  </div>
+
+  <div id="toast-host"></div>
+</body>
+</html>

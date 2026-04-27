@@ -1,0 +1,130 @@
+<% content_for :title, "Dashboard" %>
+
+<section class="cards">
+  <div class="card">
+    <div class="card-label">Active players · 5m</div>
+    <div class="card-value" id="stat-active"><%= @stats[:active_players] %></div>
+    <div class="card-sub">last seen within 5 minutes</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Watching</div>
+    <div class="card-value" id="stat-watching"><%= @stats[:watching] %></div>
+    <div class="card-sub">flagged but not yet critical</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Open alerts</div>
+    <div class="card-value <%= score_status(@stats[:highest_score]) %>" id="stat-alerts"><%= @stats[:open_alerts] %></div>
+    <div class="card-sub">awaiting review</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Highest risk</div>
+    <div class="card-value <%= score_status(@stats[:highest_score]) %>" id="stat-top"><%= @stats[:highest_score] %></div>
+    <div class="card-sub">live · 0–100 scale</div>
+  </div>
+</section>
+
+<section class="grid-2">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Events per minute · last 15m</h2>
+      <span class="muted tiny">live</span>
+    </div>
+    <div style="height: 200px;"><canvas id="chart-timeline"></canvas></div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Risk distribution</h2>
+    </div>
+    <div style="height: 200px;"><canvas id="chart-distribution"></canvas></div>
+  </div>
+</section>
+
+<section class="grid-2">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Top players by risk</h2>
+      <%= link_to "All players →", players_path, class: "btn ghost" %>
+    </div>
+    <% if @players.any? %>
+      <table class="data" id="players-table">
+        <thead>
+          <tr><th>Player</th><th>Risk</th><th>Status</th><th>Last action</th><th></th></tr>
+        </thead>
+        <tbody>
+          <% @players.each do |p| %>
+            <tr data-player-id="<%= p.id %>">
+              <td>
+                <span class="strong"><%= p.name %></span>
+                <div class="muted tiny mono"><%= p.uuid %></div>
+              </td>
+              <td class="num score <%= p.status %>" data-score><%= p.current_risk_score %></td>
+              <td data-status><%= status_pill(p.status) %></td>
+              <td data-last>
+                <span class="muted"><%= p.last_action&.tr("_", " ") %></span>
+                <span class="mono tiny dim"><%= p.last_block %></span>
+              </td>
+              <td><%= link_to "View →", player_path(p), class: "btn ghost" %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    <% else %>
+      <div class="empty">No players yet. Run <code class="mono">bin/rails mineguard:demo_grief</code> to seed activity.</div>
+    <% end %>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Live activity feed</h2>
+      <span class="muted tiny">last <%= @recent_events.size %></span>
+    </div>
+    <% if @recent_events.any? %>
+      <ul class="feed" id="event-feed">
+        <% @recent_events.each do |e| %>
+          <% danger = %w[tnt_place lava_place fire_place].include?(e.action_type) %>
+          <li class="<%= 'danger' if danger %>">
+            <span class="ts"><%= fmt_time(e.occurred_at) %></span>
+            <span class="who"><%= e.player.name %></span>
+            <span class="what"><%= e.action_type.tr("_", " ") %></span>
+            <span class="block"><%= e.block_type %></span>
+          </li>
+        <% end %>
+      </ul>
+    <% else %>
+      <div class="empty">No events yet.</div>
+    <% end %>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Open alerts</h2>
+    <%= link_to "All alerts →", alerts_path, class: "btn ghost" %>
+  </div>
+  <% if @open_alerts.any? %>
+    <table class="data" id="alerts-table">
+      <thead><tr><th>Time</th><th>Severity</th><th>Player</th><th>Score</th><th>Reason</th><th></th></tr></thead>
+      <tbody>
+        <% @open_alerts.each do |a| %>
+          <tr>
+            <td class="mono muted tiny"><%= fmt_time(a.created_at) %></td>
+            <td><%= severity_pill(a.severity) %></td>
+            <td class="strong"><%= a.player.name %></td>
+            <td class="num score <%= score_status(a.risk_score) %>"><%= a.risk_score %></td>
+            <td class="muted"><%= a.reason_summary %></td>
+            <td><%= link_to "Open →", alert_path(a), class: "btn ghost" %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% else %>
+    <div class="empty">No open alerts. Looks calm out there.</div>
+  <% end %>
+</section>
+
+<script>
+  window.__bootstrap = {
+    timeline:     <%= raw DashboardStatsService.build_event_timeline.to_json %>,
+    distribution: <%= raw DashboardStatsService.build_distribution.to_json %>
+  };
+</script>

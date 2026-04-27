@@ -1,0 +1,89 @@
+<% content_for :title, "Alert ##{@alert.id}" %>
+
+<section class="profile-head">
+  <div class="avatar"><%= avatar_for(@alert.player.name) %></div>
+  <div class="profile-meta">
+    <div class="name">
+      Alert ##{<%= @alert.id %>}
+      <%= severity_pill(@alert.severity) %>
+      <%= status_pill(@alert.status) %>
+    </div>
+    <div class="uuid"><%= link_to @alert.player.name, player_path(@alert.player) %> · <%= @alert.created_at.strftime("%Y-%m-%d %H:%M:%S") %></div>
+  </div>
+  <div style="margin-left:auto;">
+    <%= link_to "← All alerts", alerts_path, class: "btn ghost" %>
+  </div>
+</section>
+
+<section class="cards">
+  <div class="card">
+    <div class="card-label">Risk score</div>
+    <div class="card-value score <%= score_status(@alert.risk_score) %>"><%= @alert.risk_score %></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Severity</div>
+    <div class="card-value" style="font-size:20px"><%= @alert.severity.upcase %></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Status</div>
+    <div class="card-value" style="font-size:20px"><%= @alert.status.tr("_"," ").upcase %></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Player risk now</div>
+    <div class="card-value score <%= @alert.player.status %>"><%= @alert.player.current_risk_score %></div>
+    <div class="card-sub"><%= @alert.player.status %></div>
+  </div>
+</section>
+
+<section class="grid-2">
+  <div class="panel">
+    <div class="panel-head"><h2>Why was this player flagged?</h2></div>
+    <% if @alert.reasons.any? %>
+      <ul class="reasons">
+        <% @alert.reasons.each do |r| %><li><%= r %></li><% end %>
+      </ul>
+    <% else %>
+      <div class="empty">No reasons recorded for this alert.</div>
+    <% end %>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Update status</h2></div>
+    <%= form_with url: alert_path(@alert), method: :patch, local: true do |f| %>
+      <%= f.fields_for :alert do |af| %>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <%= af.select :status, Alert::STATUSES.map { |s| [s.tr("_"," "), s] }, { selected: @alert.status }, class: "input" %>
+          <%= f.submit "Update", class: "btn primary" %>
+        </div>
+      <% end %>
+    <% end %>
+
+    <% if @alert.metadata.is_a?(Hash) && @alert.metadata["breakdown"] %>
+      <h3 style="margin-top:16px">Score breakdown</h3>
+      <table class="data">
+        <tbody>
+          <% (@alert.metadata["breakdown"] || {}).each do |k, v| %>
+            <tr><td class="muted"><%= k.to_s.tr("_"," ") %></td><td class="mono"><%= v.is_a?(Hash) ? v.to_json : v %></td></tr>
+          <% end %>
+        </tbody>
+      </table>
+    <% end %>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Supporting events near alert time</h2><span class="muted tiny"><%= @events.size %> events</span></div>
+  <table class="data">
+    <thead><tr><th>Time</th><th>Action</th><th>Block</th><th>Coords</th><th>Risk pts</th></tr></thead>
+    <tbody>
+      <% @events.each do |e| %>
+        <tr>
+          <td class="mono muted tiny"><%= fmt_time(e.occurred_at) %></td>
+          <td><%= e.action_type.tr("_"," ") %></td>
+          <td class="mono"><%= e.block_type %></td>
+          <td class="mono muted">(<%= e.x %>, <%= e.y %>, <%= e.z %>)</td>
+          <td class="num"><%= e.risk_points %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+</section>
